@@ -28,7 +28,8 @@ nrow(data %>% mutate_if(is.character, function(x){ifelse(x == "", NA, x)}) %>%
 
 ```{r}
 df <- data %>% mutate_if(is.character, function(x){ifelse(x == "", NA, x)}) %>%
-  mutate_if(is.character, as.factor) 
+  mutate_if(is.character, as.factor) %>%
+  dplyr::select(-Marital, -Educ)
 
 df_multiple_imputation <- mice::mice(df, print = FALSE, m = 25, method="pmm", maxit=20)
 df <- complete(df_multiple_imputation)
@@ -67,11 +68,11 @@ for (alpha in c(0, 0.01, 0.1, 0.5, 1)) {
   
   df1 <-  rbind(df1, df1_temp) }
 
-best.model <-  df1[df1$cvm.min==min(df1$cvm.min),]
+best.model <-  df1[df1$cvm.1se==min(df1$cvm.1se),]
 best.fit   <-  get(paste('fit', best.model$enum, sep=''))
 
 # extract non-zero coefficients from best model
-coef2 <- coef(best.fit, s=best.fit$lambda.min)
+coef2 <- coef(best.fit, s=best.fit$lambda.1se)
 
 coef <-  data.frame(
   vars   = coef2@Dimnames[[1]][ which(coef2 != 0 ) ], 
@@ -105,9 +106,35 @@ ridgeFit.cv <- cv.glmnet(x = X2, y = Y2,
 
 cfL <- coef(lasFit.cv, s = "lambda.1se")
 cfR <- coef(ridgeFit.cv, s = "lambda.1se")
-cfL <- cfL[rownames(cfL) != "(Intercept)"]
-cfR <- cfR[rownames(cfR) != "(Intercept)"]
 
+coef <- data.frame(
+  vars   = cfL@Dimnames[[1]][ which(cfL != 0 ) ], 
+  val     = cfL              [ which(cfL != 0 ) ] ) %>% filter(vars != '(Intercept)') %>%
+  dplyr::rename('row' = 'vars', 'value' = 'val')
+
+coef %>%
+  ggplot() +
+  geom_point(aes(value, reorder(row, value), color = value > 0.001, fill = value > 0.001), size = 4, shape = 23, show.legend = FALSE) + 
+  ggtitle("Selected Lasso Influential Variables (Intercept Omitted)") +
+  xlab("Coefficient") +
+  ylab(NULL) + theme_minimal() + xlim(c(-max(abs(coef$val)), max(abs(coef$val)) ) ) + 
+  geom_vline(xintercept = 0, color = "black", linetype = "dotted")
+
+coef <- data.frame(
+  vars   = cfR@Dimnames[[1]][ which(cfR != 0 ) ], 
+  val     = cfR              [ which(cfR != 0 ) ] ) %>%
+  dplyr::rename('row' = 'vars', 'value' = 'val') 
+
+coef %>%
+  ggplot() +
+  geom_point(aes(value, reorder(row, value), color = value > 0.001, fill = value > 0.001), size = 4, shape = 23, show.legend = FALSE) + 
+  ggtitle("Selected Elastic-Net Influential Variables (Intercept Omitted)") +
+  xlab("Coefficient") +
+  ylab(NULL) + theme_minimal() + xlim(c(-max(abs(coef$val)), max(abs(coef$val)) ) ) + 
+  geom_vline(xintercept = 0, color = "black", linetype = "dotted")
+
+cfL <- cfL[which(rownames(cfL) != "(Intercept)"),]
+cfR <- cfR[which(rownames(cfR) != "(Intercept)"),]
 
 CFS <- data.frame(Coef = names(coef(fitO)[names(coef(fitO)) != "(Intercept)"]),
                   FullModel = coef(fitO)[names(coef(fitO)) != "(Intercept)"],

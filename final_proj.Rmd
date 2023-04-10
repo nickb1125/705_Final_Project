@@ -1,0 +1,131 @@
+---
+title: "705_Final_Project"
+author: "Nick R. Bachelder"
+date: "2023-04-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(glmnet)
+library(dplyr)
+library(tidyverse)
+library(ggthemes)
+library(hrbrthemes)
+data <- read.csv(here::here("NHANES_dataset_A.csv"))
+```
+
+
+### Find how percentage missing
+
+```{r}
+nrow(data %>% mutate_if(is.character, function(x){ifelse(x == "", NA, x)}) %>%
+  mutate_if(is.character, as.factor) %>% filter(!complete.cases(.))) / nrow(data %>% mutate_if(is.character, function(x){ifelse(x == "", NA, x)}) %>%
+  mutate_if(is.character, as.factor))
+```
+
+### Multiple Impute
+
+```{r}
+df <- data %>% mutate_if(is.character, function(x){ifelse(x == "", NA, x)}) %>%
+  mutate_if(is.character, as.factor) 
+
+df_multiple_imputation <- mice::mice(df, print = FALSE, m = 25, method="pmm", maxit=20)
+df <- complete(df_multiple_imputation)
+```
+
+```{r}
+# fit model 
+X <- df %>% dplyr::select(-eGFR) %>% mutate_if(is.numeric, scale)
+Y <- df %>% dplyr::select(eGFR) %>% as.matrix()
+X2 <-  model.matrix(eGFR ~ ., df)
+Y2 <- df$eGFR
+
+# Create cv results df
+df1 = data.frame(
+    enum = integer(),
+    alpha = double(),
+    cvm.min = double(),
+    cvm.1se = double(),
+    lambda.min = double(),
+    lambda.1se = double())
+
+
+# elastic net fit
+enum = 0
+for (alpha in c(0, 0.01, 0.1, 0.5, 1)) {
+  enum <-  enum + 1
+  fit <-  cv.glmnet(X2, Y2, family='gaussian', alpha=alpha, nfolds = 3)
+  cvm.min <-  fit$cvm[fit$lambda == fit$lambda.min]
+  cvm.1se <-  fit$cvm[fit$lambda == fit$lambda.1se]
+  lambda.min <-  fit$lambda.min
+  lambda.1se <-  fit$lambda.1se
+  
+  assign(paste("fit", enum, sep=""), fit)
+  
+  df1_temp <-  data.frame(enum, alpha, cvm.min, cvm.1se, lambda.min, lambda.1se)
+  
+  df1 <-  rbind(df1, df1_temp) }
+
+best.model <-  df1[df1$cvm.min==min(df1$cvm.min),]
+best.fit   <-  get(paste('fit', best.model$enum, sep=''))
+
+# extract non-zero coefficients from best model
+coef2 <- coef(best.fit, s=best.fit$lambda.min)
+
+coef <-  data.frame(
+  vars   = coef2@Dimnames[[1]][ which(coef2 != 0 ) ], 
+  val     = coef2              [ which(coef2 != 0 ) ] ) %>% filter(vars != '(Intercept)')
+
+
+coef %>%
+  dplyr::rename('row' = 'vars', 'value' = 'val') %>%
+  ggplot() +
+  geom_point(aes(value, reorder(row, value), color = value > 0.001, fill = value > 0.001), size = 4, shape = 23, show.legend = FALSE) + 
+  ggtitle("Selected Elastic-Net Influential Variables (Intercept Omitted)") +
+  xlab("Coefficient") +
+  ylab(NULL) + theme_minimal() + xlim(c(-max(abs(coef$val)), max(abs(coef$val)) ) ) + 
+  geom_vline(xintercept = 0, color = "black", linetype = "dotted")
+```
+
+
+
+
+
+```{r}
+fitO <- glm(eGFR ~ ., df, family = "gaussian") # normal glm non-regularized
+
+lasFit.cv <- cv.glmnet(x = X2, y = Y2, 
+                       family = "gaussian", 
+                       alpha = 1, 
+                       nfolds = 10)
+ridgeFit.cv <- cv.glmnet(x = X2, y = Y2, 
+                         family = "gaussian", 
+                         alpha = 0, nfolds = 10)
+
+cfL <- coef(lasFit.cv, s = "lambda.1se")
+cfR <- coef(ridgeFit.cv, s = "lambda.1se")
+cfL <- cfL[rownames(cfL) != "(Intercept)"]
+cfR <- cfR[rownames(cfR) != "(Intercept)"]
+
+
+CFS <- data.frame(Coef = names(coef(fitO)[names(coef(fitO)) != "(Intercept)"]),
+                  FullModel = coef(fitO)[names(coef(fitO)) != "(Intercept)"],
+                  Ridge = as.numeric(cfR),
+                  Lasso = as.numeric(cfL)) %>%
+  filter(!Coef=="(Intercept)")
+plot_dat <- CFS %>%
+  pivot_longer(cols = FullModel:Lasso) 
+
+plot_dat %>%
+  ggplot(aes(x = name, y = Coef, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "red", 
+                       mid = "white", 
+                       high = "blue") +
+  theme_ipsum() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), 
+        axis.text.y = element_text(size = 10)) +
+  xlab(" ") +
+  ylab(" ") + ggtitle("Coeficient in Each Model Fit")
+```

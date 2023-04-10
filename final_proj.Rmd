@@ -128,7 +128,7 @@ coef <- data.frame(
 coef %>%
   ggplot() +
   geom_point(aes(value, reorder(row, value), color = value > 0.001, fill = value > 0.001), size = 4, shape = 23, show.legend = FALSE) + 
-  ggtitle("Selected Elastic-Net Influential Variables (Intercept Omitted)") +
+  ggtitle("Selected Ridge Influential Variables (Intercept Omitted)") +
   xlab("Coefficient") +
   ylab(NULL) + theme_minimal() + xlim(c(-max(abs(coef$val)), max(abs(coef$val)) ) ) + 
   geom_vline(xintercept = 0, color = "black", linetype = "dotted")
@@ -144,8 +144,18 @@ CFS <- data.frame(Coef = names(coef(fitO)[names(coef(fitO)) != "(Intercept)"]),
 plot_dat <- CFS %>%
   pivot_longer(cols = FullModel:Lasso) 
 
-plot_dat %>%
-  ggplot(aes(x = name, y = Coef, fill = value)) +
+# First, calculate the mean value for each name
+plot_dat_mean <- plot_dat %>%
+  group_by(Coef) %>%
+  summarize(mean_coef = mean(value))
+
+# Then, use the mean_coef column to order the axis
+plot_dat_ordered <- plot_dat %>%
+  mutate(Coef = factor(Coef, levels = plot_dat_mean[order(plot_dat_mean$mean_coef), "Coef"]$Coef))
+
+
+# Finally, plot the ordered data
+ggplot(plot_dat_ordered, aes(x = name, y = Coef, fill = value)) +
   geom_tile() +
   scale_fill_gradient2(low = "red", 
                        mid = "white", 
@@ -154,5 +164,6 @@ plot_dat %>%
   theme(axis.text.x = element_text(angle = 45, hjust = 1), 
         axis.text.y = element_text(size = 10)) +
   xlab(" ") +
-  ylab(" ") + ggtitle("Coeficient in Each Model Fit")
+  ylab(" ") +
+  ggtitle("Coefficient in Each Model Fit")
 ```

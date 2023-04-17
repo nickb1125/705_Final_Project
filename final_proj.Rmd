@@ -112,6 +112,8 @@ coef <- data.frame(
   val     = cfL              [ which(cfL != 0 ) ] ) %>% filter(vars != '(Intercept)') %>%
   dplyr::rename('row' = 'vars', 'value' = 'val')
 
+coef
+
 coef %>%
   ggplot() +
   geom_point(aes(value, reorder(row, value), color = value > 0.001, fill = value > 0.001), size = 4, shape = 23, show.legend = FALSE) + 
@@ -124,6 +126,8 @@ coef <- data.frame(
   vars   = cfR@Dimnames[[1]][ which(cfR != 0 ) ], 
   val     = cfR              [ which(cfR != 0 ) ] ) %>%
   dplyr::rename('row' = 'vars', 'value' = 'val') 
+
+coef
 
 coef %>%
   ggplot() +
